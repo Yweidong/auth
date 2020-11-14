@@ -13,9 +13,12 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.annotation.Pointcut;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.DefaultParameterNameDiscoverer;
 import org.springframework.core.ParameterNameDiscoverer;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -36,45 +39,46 @@ import java.util.Map;
 @Aspect
 @Component
 @Slf4j
-public class VerifyTokenAspect {
+public class IdempotentTokenAspect {
 
-    @Pointcut("@annotation(com.example.authdemo.annotation.VerifyTokenAnno)")
+    @Autowired
+    RedisTemplate redisTemplate;
+    private static final String TOKEN_NAME = "token";
+    @Pointcut("@annotation(com.example.authdemo.annotation.IdempotentTokenAnno)")
     private void verifyTokenPointcut(){}
 
     @Before("verifyTokenPointcut()")
-    public void doBefore() {}
+    public void doBefore() {
+
+    }
 
     @Around("verifyTokenPointcut()")
     public void authToken(ProceedingJoinPoint joinPoint) throws Throwable {
         // 接收到请求，记录请求内容
         ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         HttpServletRequest request = attributes.getRequest();
-        Field field;
-        String token = null;
-        Enumeration<String> enu = request.getParameterNames();
-            while (enu.hasMoreElements()) {
-                String name = (String) enu.nextElement();
-                try{
-                    field= AuthDto.class.getDeclaredField(name);
-                }catch (NoSuchFieldException e){
-                    throw new ResultException(ResultStatus.BAD_REQUEST,"field `"+name+"` is not exists");
-                }
-                if(name == "token") {
-                    token = request.getParameter("token");
-                }
 
+        String token = request.getHeader("token");//请求头中是否有token
+        if(StringUtils.isEmpty(token)) {
+            token = request.getParameter(TOKEN_NAME);
+            if(StringUtils.isEmpty(token)) {
+                throw new ResultException(ResultStatus.BAD_REQUEST,"请勿重复提交1");
             }
+        }
+        if(!redisTemplate.hasKey(TOKEN_NAME)) {
+            throw new ResultException(ResultStatus.BAD_REQUEST,"请勿重复提交2");
+        }
+//        System.out.println(token);
+        if(!redisTemplate.opsForValue().get(TOKEN_NAME).equals(token)) {
+            throw new ResultException(ResultStatus.BAD_REQUEST,"请勿重复提交3");
+        }
 
-            if(token != null) {
-                String decrypt = DeshfuUtil.decrypt(token);
-                if((System.currentTimeMillis()/1000) - Long.valueOf(decrypt) >=7200) {
-                    throw new ResultException(ResultStatus.BAD_REQUEST,"token is out of date");
-                }
-            }else {
-                throw new ResultException(ResultStatus.BAD_REQUEST,"token is missing");
-            }
+        Boolean delete = redisTemplate.delete(TOKEN_NAME);
+        if(!delete) {
+            throw new ResultException(ResultStatus.BAD_REQUEST,"请勿重复提交4");
+        }
 
-            joinPoint.proceed();//放行
+        joinPoint.proceed();//放行
 
     }
 

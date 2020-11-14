@@ -1,0 +1,16 @@
+spring:
+  redis:
+    host: 123.206.232.137
+    port: 6379
+    database: 0
+    password: Njhykj/388
+    jedis:
+      pool:
+        #最大连接数量
+        max-active: 200
+        #最大空闲数量
+        max-idle: 200
+        #最小空闲数量
+        min-idle: 10
+        #最大等待时间
+        max-wait: 3000ms
